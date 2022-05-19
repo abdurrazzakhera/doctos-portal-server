@@ -37,26 +37,39 @@ async function run() {
 
     //Available all services
     app.get("/avaiableService", async (req, res) => {
-      const date = req.body.date || "May 18, 2022";
+      const date = req.query.date;
+      // console.log(date);
 
-      //get all services
+      // get all services
       const services = await serviceCollection.find().toArray();
 
       // step-2 : get the booking of the day
       const query = { date: date };
       const booking = await bookingCollection.find(query).toArray();
 
-      //step-3 : for each service , find for booking servics
+      //step-3 : for each service
       services.forEach((service) => {
+        //step-4:find for that booking services
         const serviceBooking = booking.filter(
-          (b) => b.treatment === service.name
+          (book) => book.treatment === service.name
         );
-        const booked = serviceBooking.map((s) => s.slottime);
-        const available = service.slots.filter((s) => !booked.includes(s));
-        service.available = available;
-        // service.booked = booked;
+        //step-5:select slots for the service booking:
+        const bookedSlots = serviceBooking.map((book) => book.slottime);
+        // step-6 select those slot that are not bookedSlots
+        const availAble = service.slots.filter(
+          (slot) => !bookedSlots.includes(slot)
+        );
+        service.slots = availAble;
       });
       res.send(services);
+    });
+
+    // get perticular booking item user
+    app.get("/booking", async (req, res) => {
+      const patient = req.query.patient;
+      const query = { patient: patient };
+      const bookings = await bookingCollection.find(query).toArray();
+      res.send(bookings);
     });
 
     //Booking a insert a date
