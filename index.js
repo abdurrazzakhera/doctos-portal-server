@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const { MongoClient, ServerApiVersion } = require("mongodb");
 const app = express();
@@ -8,6 +9,37 @@ const port = process.env.PORT || 5000;
 //midle were
 app.use(cors());
 app.use(express.json());
+
+// Jwt token
+// function varifyJWT(req, res, next) {
+//   const authHeaders = req.headers.authorization;
+//   // console.log(authHeaders);
+//   if (!authHeaders) {
+//     return res.status(401).send({ massage: "Unautorize access" });
+//   }
+//   const token = authHeaders.split(" ")[1];
+//   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+//     if (err) {
+//       res.status(403).send({ message: "Forbiden Access" });
+//     }
+//     req.decoded = decoded;
+//     next();
+//   });
+// }
+function verifyJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).send({ message: "UnAuthorized access" });
+  }
+  const token = authHeader.split(" ")[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+    if (err) {
+      return res.status(403).send({ message: "Forbidden access" });
+    }
+    req.decoded = decoded;
+    next();
+  });
+}
 
 //mongodb uri
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.wbtgx.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
@@ -26,27 +58,67 @@ async function run() {
       .db("doctors-portal")
       .collection("services");
     const bookingCollection = client.db("doctors-portal").collection("booking");
+    const userCollection = client.db("doctors-portal").collection("user");
+    const doctorCollection = client.db("doctors-portal").collection("doctor");
 
     //fien/get all data or services
     app.get("/service", async (req, res) => {
       const query = {};
-      const cursor = serviceCollection.find(query);
+      const cursor = serviceCollection.find(query).project({ name: 1 });
       const services = await cursor.toArray();
       res.send(services);
+    });
+    //Make admin all user
+    app.put("/user/admin/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const requster = req.decoded.email;
+      const requsterAccount = await userCollection.findOne({ email: requster });
+      if (requsterAccount.role === "admin") {
+        //Crate a filter to user update
+        const filter = { email: email };
+        console.log(filter);
+        // create a document that sets the plot of the movie
+        const updateDoc = {
+          $set: { role: "admin" },
+        };
+        // update a user set database
+        const result = await userCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      } else {
+        res.status(403).send({ message: "forbidden" });
+      }
+    });
+
+    //Put All user
+    app.put("/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = req.body;
+      //Crate a filter to user update
+      const filter = { email: email };
+      //this option instruc the method to create a document if no document match
+      const options = { upsert: true };
+      // create a document that sets the plot of the movie
+      const updateDoc = {
+        $set: user,
+      };
+      // update a user set database
+      const result = await userCollection.updateOne(filter, updateDoc, options);
+      const token = jwt.sign(
+        { email: email },
+        process.env.ACCESS_TOKEN_SECRET,
+        { expiresIn: "1h" }
+      );
+      res.send({ result, token });
     });
 
     //Available all services
     app.get("/avaiableService", async (req, res) => {
       const date = req.query.date;
-      // console.log(date);
-
       // get all services
       const services = await serviceCollection.find().toArray();
-
       // step-2 : get the booking of the day
       const query = { date: date };
       const booking = await bookingCollection.find(query).toArray();
-
       //step-3 : for each service
       services.forEach((service) => {
         //step-4:find for that booking services
@@ -64,12 +136,34 @@ async function run() {
       res.send(services);
     });
 
+    //Get All User methodd
+    app.get("/users", verifyJWT, async (req, res) => {
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
+
+    // get admin user
+    app.get("/admin/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await userCollection.findOne({ email: email });
+      const isAdmin = user.role === "admin";
+      res.send({ admin: isAdmin });
+    });
+
     // get perticular booking item user
-    app.get("/booking", async (req, res) => {
+    app.get("/booking", verifyJWT, async (req, res) => {
       const patient = req.query.patient;
-      const query = { patient: patient };
-      const bookings = await bookingCollection.find(query).toArray();
-      res.send(bookings);
+      // const decodedEmail = req.decoded.email;
+      // console.log(decodedEmail);
+      if (patient === req.decoded?.email) {
+        const query = { patient: patient };
+        const bookings = await bookingCollection.find(query).toArray();
+        res.send(bookings);
+      } else {
+        res.status(403).send({ massage: "Forbiden Access" });
+      }
+      // const authorization = req.headers.authorization;
+      // console.log(authorization);
     });
 
     //Booking a insert a date
@@ -86,6 +180,13 @@ async function run() {
       }
       const result = await bookingCollection.insertOne(booking);
       res.send({ success: true, result });
+    });
+
+    //ALL Doctor added in  a post method;
+    app.post("/doctor", verifyJWT, async (req, res) => {
+      const doctor = req.body;
+      const resutl = await doctorCollection.insertOne(doctor);
+      res.send(resutl);
     });
   } finally {
   }
