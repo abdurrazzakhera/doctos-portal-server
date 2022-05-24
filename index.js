@@ -10,22 +10,6 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Jwt token
-// function varifyJWT(req, res, next) {
-//   const authHeaders = req.headers.authorization;
-//   // console.log(authHeaders);
-//   if (!authHeaders) {
-//     return res.status(401).send({ massage: "Unautorize access" });
-//   }
-//   const token = authHeaders.split(" ")[1];
-//   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
-//     if (err) {
-//       res.status(403).send({ message: "Forbiden Access" });
-//     }
-//     req.decoded = decoded;
-//     next();
-//   });
-// }
 function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -61,6 +45,16 @@ async function run() {
     const userCollection = client.db("doctors-portal").collection("user");
     const doctorCollection = client.db("doctors-portal").collection("doctor");
 
+    const varifyAdmin = async (req, res, next) => {
+      const requster = req.decoded.email;
+      const requsterAccount = await userCollection.findOne({ email: requster });
+      if (requsterAccount.role === "admin") {
+        next();
+      } else {
+        res.status(403).send({ message: "forbidden" });
+      }
+    };
+
     //fien/get all data or services
     app.get("/service", async (req, res) => {
       const query = {};
@@ -69,24 +63,19 @@ async function run() {
       res.send(services);
     });
     //Make admin all user
-    app.put("/user/admin/:email", verifyJWT, async (req, res) => {
+    app.put("/user/admin/:email", verifyJWT, varifyAdmin, async (req, res) => {
       const email = req.params.email;
-      const requster = req.decoded.email;
-      const requsterAccount = await userCollection.findOne({ email: requster });
-      if (requsterAccount.role === "admin") {
-        //Crate a filter to user update
-        const filter = { email: email };
-        console.log(filter);
-        // create a document that sets the plot of the movie
-        const updateDoc = {
-          $set: { role: "admin" },
-        };
-        // update a user set database
-        const result = await userCollection.updateOne(filter, updateDoc);
-        res.send(result);
-      } else {
-        res.status(403).send({ message: "forbidden" });
-      }
+
+      //Crate a filter to user update
+      const filter = { email: email };
+      console.log(filter);
+      // create a document that sets the plot of the movie
+      const updateDoc = {
+        $set: { role: "admin" },
+      };
+      // update a user set database
+      const result = await userCollection.updateOne(filter, updateDoc);
+      res.send(result);
     });
 
     //Put All user
@@ -182,10 +171,23 @@ async function run() {
       res.send({ success: true, result });
     });
 
+    //get all doctor data
+    app.get("/doctor", verifyJWT, varifyAdmin, async (req, res) => {
+      const doctors = await doctorCollection.find().toArray();
+      res.send(doctors);
+    });
+
     //ALL Doctor added in  a post method;
-    app.post("/doctor", verifyJWT, async (req, res) => {
+    app.post("/doctor", verifyJWT, varifyAdmin, async (req, res) => {
       const doctor = req.body;
       const resutl = await doctorCollection.insertOne(doctor);
+      res.send(resutl);
+    });
+    //delete a doctor
+    app.delete("/doctor/:email", verifyJWT, varifyAdmin, async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const resutl = await doctorCollection.deleteOne(query);
       res.send(resutl);
     });
   } finally {
