@@ -2,8 +2,9 @@ const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const app = express();
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
 
 //midle were
@@ -44,6 +45,9 @@ async function run() {
     const bookingCollection = client.db("doctors-portal").collection("booking");
     const userCollection = client.db("doctors-portal").collection("user");
     const doctorCollection = client.db("doctors-portal").collection("doctor");
+    const paymentCollection = client
+      .db("doctors-portal")
+      .collection("payments");
 
     const varifyAdmin = async (req, res, next) => {
       const requster = req.decoded.email;
@@ -54,6 +58,19 @@ async function run() {
         res.status(403).send({ message: "forbidden" });
       }
     };
+
+    //Paymet Intent method
+    app.post("/create-payment-intent", async (req, res) => {
+      const service = req.body;
+      const price = service.price;
+      const amount = price * 100;
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send({ clientSecret: paymentIntent.client_secret });
+    });
 
     //fien/get all data or services
     app.get("/service", async (req, res) => {
@@ -169,6 +186,33 @@ async function run() {
       }
       const result = await bookingCollection.insertOne(booking);
       res.send({ success: true, result });
+    });
+
+    // Get Booking by id
+    app.get("/booking/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) };
+      const result = await bookingCollection.findOne(query);
+      res.send(result);
+    });
+
+    //Update Payment true
+    app.patch("/booking/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const payment = req.body;
+      const filter = { _id: ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          paid: true,
+          transectionId: payment.transectionId,
+        },
+      };
+      const result = await paymentCollection.insertOne(payment);
+      const updatedBooking = await bookingCollection.updateOne(
+        filter,
+        updateDoc
+      );
+      res.send(updatedBooking);
     });
 
     //get all doctor data
